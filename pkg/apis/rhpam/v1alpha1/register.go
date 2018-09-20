@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	version   = "v1alpha1"
-	groupName = "rhpam.redhat.com"
+	version   = "v1"
+	groupName = "kiegroup.org"
 )
 
 var (
