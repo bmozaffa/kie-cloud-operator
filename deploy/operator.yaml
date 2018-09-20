@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: kie-cloud-operator
-          image: docker.io/bmozaffa/kie-cloud-operator
+          image: quay.io/kiegroup/kie-cloud-operator
           ports:
           - containerPort: 60000
             name: metrics
