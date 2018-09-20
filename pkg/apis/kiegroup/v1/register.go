@@ -1,4 +1,4 @@
-package v1alpha1
+package v1
 
 import (
 	sdkK8sutil "github.com/operator-framework/operator-sdk/pkg/util/k8sutil"

@@ -2,7 +2,7 @@
     dep ensure
     operator-sdk build quay.io/kiegroup/kie-cloud-operator
 
-# Upload to dockerhub
+# Upload to a docker repo
 
     docker push quay.io/kiegroup/kie-cloud-operator:latest
 
