@@ -329,52 +329,42 @@ func ConsolidateObjects(env v1.Environment, common v1.KieAppSpec, cr *v1.KieApp)
 func (reconciler *ReconcileKieApp) createCustomObjects(object v1.CustomObject, cr *v1.KieApp) (reconcile.Result, error) {
 	for _, obj := range object.PersistentVolumeClaims {
 		obj.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("PersistentVolumeClaim"))
-		controllerutil.SetControllerReference(cr, &obj, reconciler.scheme)
-		obj.SetNamespace(cr.Namespace)
-		_, _ = reconciler.createCustomObject(obj.Name, obj.Namespace, obj.DeepCopyObject(), &corev1.PersistentVolumeClaim{})
+		_, _ = reconciler.createCustomObject(&obj, cr, obj.DeepCopyObject(), &corev1.PersistentVolumeClaim{})
 	}
 	for _, obj := range object.ServiceAccounts {
 		obj.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("ServiceAccount"))
-		controllerutil.SetControllerReference(cr, &obj, reconciler.scheme)
-		obj.SetNamespace(cr.Namespace)
-		_, _ = reconciler.createCustomObject(obj.Name, obj.Namespace, obj.DeepCopyObject(), &corev1.ServiceAccount{})
+		_, _ = reconciler.createCustomObject(&obj, cr, obj.DeepCopyObject(), &corev1.ServiceAccount{})
 	}
 	for _, obj := range object.Secrets {
 		obj.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Secret"))
-		controllerutil.SetControllerReference(cr, &obj, reconciler.scheme)
-		obj.SetNamespace(cr.Namespace)
-		_, _ = reconciler.createCustomObject(obj.Name, obj.Namespace, obj.DeepCopyObject(), &corev1.Secret{})
+		_, _ = reconciler.createCustomObject(&obj, cr, obj.DeepCopyObject(), &corev1.Secret{})
 	}
 	for _, obj := range object.RoleBindings {
 		obj.SetGroupVersionKind(rbac_v1.SchemeGroupVersion.WithKind("RoleBinding"))
-		controllerutil.SetControllerReference(cr, &obj, reconciler.scheme)
-		obj.SetNamespace(cr.Namespace)
-		_, _ = reconciler.createCustomObject(obj.Name, obj.Namespace, obj.DeepCopyObject(), &rbac_v1.RoleBinding{})
+		_, _ = reconciler.createCustomObject(&obj, cr, obj.DeepCopyObject(), &rbac_v1.RoleBinding{})
 	}
 	for _, obj := range object.DeploymentConfigs {
 		obj.SetGroupVersionKind(oappsv1.SchemeGroupVersion.WithKind("DeploymentConfig"))
-		controllerutil.SetControllerReference(cr, &obj, reconciler.scheme)
-		obj.SetNamespace(cr.Namespace)
-		_, _ = reconciler.createCustomObject(obj.Name, obj.Namespace, obj.DeepCopyObject(), &oappsv1.DeploymentConfig{})
+		_, _ = reconciler.createCustomObject(&obj, cr, obj.DeepCopyObject(), &oappsv1.DeploymentConfig{})
 	}
 	for _, obj := range object.Services {
 		obj.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Service"))
-		controllerutil.SetControllerReference(cr, &obj, reconciler.scheme)
-		obj.SetNamespace(cr.Namespace)
-		_, _ = reconciler.createCustomObject(obj.Name, obj.Namespace, obj.DeepCopyObject(), &corev1.Service{})
+		_, _ = reconciler.createCustomObject(&obj, cr, obj.DeepCopyObject(), &corev1.Service{})
 	}
 	for _, obj := range object.Routes {
 		obj.SetGroupVersionKind(routev1.SchemeGroupVersion.WithKind("Route"))
-		controllerutil.SetControllerReference(cr, &obj, reconciler.scheme)
-		obj.SetNamespace(cr.Namespace)
-		_, _ = reconciler.createCustomObject(obj.Name, obj.Namespace, obj.DeepCopyObject(), &routev1.Route{})
+		_, _ = reconciler.createCustomObject(&obj, cr, obj.DeepCopyObject(), &routev1.Route{})
 	}
 
 	return reconcile.Result{}, nil
 }
 
 // createCustomObject checks for an object's existence before creating it
-func (reconciler *ReconcileKieApp) createCustomObject(name, namespace string, deepCopyObj, emptyObj runtime.Object) (reconcile.Result, error) {
+func (reconciler *ReconcileKieApp) createCustomObject(obj metav1.Object, cr *v1.KieApp, deepCopyObj, emptyObj runtime.Object) (reconcile.Result, error) {
+	name := obj.GetName()
+	namespace := obj.GetNamespace()
+	controllerutil.SetControllerReference(cr, obj, reconciler.scheme)
+	obj.SetNamespace(namespace)
 	return reconciler.createObj(
 		name,
 		namespace,
