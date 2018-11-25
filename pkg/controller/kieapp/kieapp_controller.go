@@ -297,18 +297,18 @@ func (reconciler *ReconcileKieApp) NewEnv(cr *v1.KieApp) (v1.Environment, reconc
 	if err != nil {
 		return env, rResult, err
 	}
-	rResult, _ = reconciler.createCustomObjects(env.Console, cr)
+	rResult, err = reconciler.createCustomObjects(env.Console, cr)
 	if err != nil {
 		return env, rResult, err
 	}
 	for _, s := range env.Servers {
-		rResult, _ = reconciler.createCustomObjects(s, cr)
+		rResult, err = reconciler.createCustomObjects(s, cr)
 		if err != nil {
 			return env, rResult, err
 		}
 	}
 	for _, o := range env.Others {
-		rResult, _ = reconciler.createCustomObjects(o, cr)
+		rResult, err = reconciler.createCustomObjects(o, cr)
 		if err != nil {
 			return env, rResult, err
 		}
@@ -358,7 +358,10 @@ func (reconciler *ReconcileKieApp) createCustomObjects(object v1.CustomObject, c
 	}
 
 	for _, obj := range allObjects {
-		_, _ = reconciler.createCustomObject(obj, cr)
+		_, err := reconciler.createCustomObject(obj, cr)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
 	}
 	return reconcile.Result{}, nil
 }
@@ -367,7 +370,11 @@ func (reconciler *ReconcileKieApp) createCustomObjects(object v1.CustomObject, c
 func (reconciler *ReconcileKieApp) createCustomObject(obj v1.OpenShiftObject, cr *v1.KieApp) (reconcile.Result, error) {
 	name := obj.GetName()
 	namespace := cr.GetNamespace()
-	controllerutil.SetControllerReference(cr, obj, reconciler.scheme)
+	err := controllerutil.SetControllerReference(cr, obj, reconciler.scheme)
+	if err != nil {
+		logrus.Printf("Failed to create new %s %s/%s: %v\n", obj.GetObjectKind().GroupVersionKind().Kind, namespace, name, err)
+		return reconcile.Result{}, err
+	}
 	obj.SetNamespace(namespace)
 	deepCopyObj := obj.DeepCopyObject()
 	emptyObj := reflect.New(reflect.TypeOf(obj).Elem()).Interface().(runtime.Object)
