@@ -327,44 +327,58 @@ func ConsolidateObjects(env v1.Environment, common v1.KieAppSpec, cr *v1.KieApp)
 }
 
 func (reconciler *ReconcileKieApp) createCustomObjects(object v1.CustomObject, cr *v1.KieApp) (reconcile.Result, error) {
+	allObjects := []v1.OpenShiftObject{}
+	emptyObjects := []runtime.Object{}
 	for _, obj := range object.PersistentVolumeClaims {
 		obj.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("PersistentVolumeClaim"))
-		_, _ = reconciler.createCustomObject(&obj, cr, obj.DeepCopyObject(), &corev1.PersistentVolumeClaim{})
+		allObjects = append(allObjects, &obj)
+		emptyObjects = append(emptyObjects, &corev1.PersistentVolumeClaim{})
 	}
 	for _, obj := range object.ServiceAccounts {
 		obj.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("ServiceAccount"))
-		_, _ = reconciler.createCustomObject(&obj, cr, obj.DeepCopyObject(), &corev1.ServiceAccount{})
+		allObjects = append(allObjects, &obj)
+		emptyObjects = append(emptyObjects, &corev1.ServiceAccount{})
 	}
 	for _, obj := range object.Secrets {
 		obj.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Secret"))
-		_, _ = reconciler.createCustomObject(&obj, cr, obj.DeepCopyObject(), &corev1.Secret{})
+		allObjects = append(allObjects, &obj)
+		emptyObjects = append(emptyObjects, &corev1.Secret{})
 	}
 	for _, obj := range object.RoleBindings {
 		obj.SetGroupVersionKind(rbac_v1.SchemeGroupVersion.WithKind("RoleBinding"))
-		_, _ = reconciler.createCustomObject(&obj, cr, obj.DeepCopyObject(), &rbac_v1.RoleBinding{})
+		allObjects = append(allObjects, &obj)
+		emptyObjects = append(emptyObjects, &rbac_v1.RoleBinding{})
 	}
 	for _, obj := range object.DeploymentConfigs {
 		obj.SetGroupVersionKind(oappsv1.SchemeGroupVersion.WithKind("DeploymentConfig"))
-		_, _ = reconciler.createCustomObject(&obj, cr, obj.DeepCopyObject(), &oappsv1.DeploymentConfig{})
+		allObjects = append(allObjects, &obj)
+		emptyObjects = append(emptyObjects, &oappsv1.DeploymentConfig{})
 	}
 	for _, obj := range object.Services {
 		obj.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Service"))
-		_, _ = reconciler.createCustomObject(&obj, cr, obj.DeepCopyObject(), &corev1.Service{})
+		allObjects = append(allObjects, &obj)
+		emptyObjects = append(emptyObjects, &corev1.Service{})
 	}
 	for _, obj := range object.Routes {
 		obj.SetGroupVersionKind(routev1.SchemeGroupVersion.WithKind("Route"))
-		_, _ = reconciler.createCustomObject(&obj, cr, obj.DeepCopyObject(), &routev1.Route{})
+		allObjects = append(allObjects, &obj)
+		emptyObjects = append(emptyObjects, &routev1.Route{})
 	}
 
+	for index, obj := range allObjects {
+		emptyObject := emptyObjects[index]
+		_, _ = reconciler.createCustomObject(obj, cr, emptyObject)
+	}
 	return reconcile.Result{}, nil
 }
 
 // createCustomObject checks for an object's existence before creating it
-func (reconciler *ReconcileKieApp) createCustomObject(obj metav1.Object, cr *v1.KieApp, deepCopyObj, emptyObj runtime.Object) (reconcile.Result, error) {
+func (reconciler *ReconcileKieApp) createCustomObject(obj v1.OpenShiftObject, cr *v1.KieApp, emptyObj runtime.Object) (reconcile.Result, error) {
 	name := obj.GetName()
-	namespace := obj.GetNamespace()
+	namespace := cr.GetNamespace()
 	controllerutil.SetControllerReference(cr, obj, reconciler.scheme)
 	obj.SetNamespace(namespace)
+	deepCopyObj := obj.DeepCopyObject()
 	return reconciler.createObj(
 		name,
 		namespace,
