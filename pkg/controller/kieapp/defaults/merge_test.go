@@ -7,7 +7,6 @@ import (
 	"github.com/kiegroup/kie-cloud-operator/pkg/apis/app/v1"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	oappsv1 "github.com/openshift/api/apps/v1"
 )
 
 func TestMergeServices(t *testing.T) {
@@ -139,11 +138,11 @@ func TestReferenceProblem(t *testing.T) {
 	assert.NotNil(t, env, "Should not be nil")
 	allObjects := []v1.OpenShiftObject{}
 	for _, obj := range env.Servers[0].DeploymentConfigs {
-		obj.SetGroupVersionKind(oappsv1.SchemeGroupVersion.WithKind("DeploymentConfig"))
 		allObjects = append(allObjects, &obj)
-		logrus.Infof("Added object called %s of type %s", obj.GetName(), obj.GetObjectKind().GroupVersionKind().Kind)
+		logrus.Infof("Added object called %s, address %p", obj.GetName(), &obj)
 	}
+	logrus.Infof("Slice size is %v", len(allObjects))
 	for _, obj := range allObjects {
-		logrus.Infof("Slice contains object called %s of type %s", obj.GetName(), obj.GetObjectKind().GroupVersionKind().Kind)
+		logrus.Infof("Slice contains object called %s, address %p", obj.GetName(), obj)
 	}
 }
