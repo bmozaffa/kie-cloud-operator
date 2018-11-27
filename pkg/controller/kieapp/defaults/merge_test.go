@@ -1,11 +1,13 @@
 package defaults
 
 import (
+	"github.com/sirupsen/logrus"
 	"testing"
 
 	"github.com/kiegroup/kie-cloud-operator/pkg/apis/app/v1"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	oappsv1 "github.com/openshift/api/apps/v1"
 )
 
 func TestMergeServices(t *testing.T) {
@@ -120,4 +122,28 @@ func getConsole(environment string, name string) (v1.CustomObject, error) {
 		return v1.CustomObject{}, err
 	}
 	return env.Console, nil
+}
+
+func TestReferenceProblem(t *testing.T) {
+	cr := &v1.KieApp{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test",
+			Namespace: "test-ns",
+		},
+		Spec: v1.KieAppSpec{
+			Environment: "production",
+		},
+	}
+
+	env, _, _ := GetEnvironment(cr)
+	assert.NotNil(t, env, "Should not be nil")
+	allObjects := []v1.OpenShiftObject{}
+	for _, obj := range env.Servers[0].DeploymentConfigs {
+		obj.SetGroupVersionKind(oappsv1.SchemeGroupVersion.WithKind("DeploymentConfig"))
+		allObjects = append(allObjects, &obj)
+		logrus.Infof("Added object called %s of type %s", obj.GetName(), obj.GetObjectKind().GroupVersionKind().Kind)
+	}
+	for _, obj := range allObjects {
+		logrus.Infof("Slice contains object called %s of type %s", obj.GetName(), obj.GetObjectKind().GroupVersionKind().Kind)
+	}
 }
