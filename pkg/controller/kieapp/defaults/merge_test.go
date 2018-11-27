@@ -137,12 +137,12 @@ func TestReferenceProblem(t *testing.T) {
 	env, _, _ := GetEnvironment(cr)
 	assert.NotNil(t, env, "Should not be nil")
 	allObjects := []v1.OpenShiftObject{}
-	for _, obj := range env.Servers[0].DeploymentConfigs {
-		allObjects = append(allObjects, &obj)
-		logrus.Infof("Added object called %s, address %p", obj.GetName(), &obj)
+	for index, _ := range env.Servers[0].DeploymentConfigs {
+		allObjects = append(allObjects, &env.Servers[0].DeploymentConfigs[index])
+		logrus.Infof("Added object called %s, address %p", env.Servers[0].DeploymentConfigs[index].GetName(), &env.Servers[0].DeploymentConfigs[index])
 	}
 	logrus.Infof("Slice size is %v", len(allObjects))
-	for _, obj := range allObjects {
-		logrus.Infof("Slice contains object called %s, address %p", obj.GetName(), obj)
+	for _, ref := range allObjects {
+		logrus.Infof("Slice contains object called %s, address %p", ref.GetName(), ref)
 	}
 }
