@@ -34,7 +34,7 @@ func getNewEnvironment(name string) (v1.Environment, error) {
 		},
 	}
 
-	env, err := defaults.GetLiteEnvironment(cr)
+	env, err := defaults.GetLiteEnvironment(cr, fake.NewFakeClient())
 	if err != nil {
 		return v1.Environment{}, err
 	}

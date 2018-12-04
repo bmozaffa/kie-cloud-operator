@@ -148,7 +148,7 @@ func (reconciler *ReconcileKieApp) Reconcile(request reconcile.Request) (reconci
 	logrus.Debugf("Reconciling %s/%s\n", request.Namespace, request.Name)
 
 	// Fetch/Create critical ConfigMaps
-	reconciler.initConfigMaps(request.Namespace)
+	reconciler.createConfigMaps(request.Namespace)
 
 	// Fetch the KieApp instance
 	instance := &v1.KieApp{}
@@ -483,7 +483,7 @@ func (reconciler *ReconcileKieApp) createObj(name, namespace string, obj runtime
 		logrus.Infof("Failed to get %s %s/%s: %v\n", obj.GetObjectKind().GroupVersionKind().Kind, namespace, name, err)
 		return reconcile.Result{}, err
 	}
-	// logrus.Infof("Skip reconcile: %s %s/%s already exists", obj.GetObjectKind().GroupVersionKind().Kind, namespace, name)
+	logrus.Debugf("Skip reconcile: %s %s/%s already exists\n", obj.GetObjectKind().GroupVersionKind().Kind, namespace, name)
 	return reconcile.Result{}, nil
 }
 
@@ -554,27 +554,28 @@ func (reconciler *ReconcileKieApp) getRouteHost(route routev1.Route, cr *v1.KieA
 	return found.Spec.Host
 }
 
-func (reconciler *ReconcileKieApp) initConfigMaps(namespace string) {
+func (reconciler *ReconcileKieApp) createConfigMaps(namespace string) {
 	configMaps := defaults.ConfigMapsFromFile(namespace)
-
 	for _, configMap := range configMaps {
+		create := true
 		name := configMap.Name
-		ns := configMap.Namespace
-
-		emptyObj := &corev1.ConfigMap{}
-		err := reconciler.client.Get(context.TODO(), types.NamespacedName{Name: name, Namespace: ns}, emptyObj)
-		if err != nil {
-			logrus.Error(err)
+		result := strings.Split(name, "-")
+		if len(result) > 1 {
+			if result[1] == "testdata" {
+				create = false
+			}
 		}
-
-		configMap.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("ConfigMap"))
-		deepCopyObj := configMap.DeepCopyObject()
-		emptyObj = &corev1.ConfigMap{}
-		_, _ = reconciler.createObj(
-			name,
-			ns,
-			deepCopyObj,
-			reconciler.client.Get(context.TODO(), types.NamespacedName{Name: name, Namespace: ns}, emptyObj),
-		)
+		if create {
+			ns := configMap.Namespace
+			configMap.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("ConfigMap"))
+			deepCopyObj := configMap.DeepCopyObject()
+			emptyObj := &corev1.ConfigMap{}
+			_, _ = reconciler.createObj(
+				name,
+				ns,
+				deepCopyObj,
+				reconciler.client.Get(context.TODO(), types.NamespacedName{Name: name, Namespace: ns}, emptyObj),
+			)
+		}
 	}
 }

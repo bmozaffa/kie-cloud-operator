@@ -19,16 +19,15 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/sirupsen/logrus"
 )
 
-func GetLiteEnvironment(cr *v1.KieApp) (v1.Environment, error) {
+func GetLiteEnvironment(cr *v1.KieApp, client client.Client) (v1.Environment, error) {
 	envTemplate := getEnvTemplate(cr)
 
 	var servers v1.CustomObject
-	yamlBytes, err := loadYaml(fake.NewFakeClient(), "common/server.yaml", cr.Namespace, envTemplate)
+	yamlBytes, err := loadYaml(client, "common/server.yaml", cr.Namespace, envTemplate)
 	if err != nil {
 		return v1.Environment{}, err
 	}
@@ -38,7 +37,7 @@ func GetLiteEnvironment(cr *v1.KieApp) (v1.Environment, error) {
 	}
 
 	var console v1.CustomObject
-	yamlBytes, err = loadYaml(fake.NewFakeClient(), "common/console.yaml", cr.Namespace, envTemplate)
+	yamlBytes, err = loadYaml(client, "common/console.yaml", cr.Namespace, envTemplate)
 	if err != nil {
 		return v1.Environment{}, err
 	}
@@ -48,7 +47,7 @@ func GetLiteEnvironment(cr *v1.KieApp) (v1.Environment, error) {
 	}
 
 	var env v1.Environment
-	yamlBytes, err = loadYaml(fake.NewFakeClient(), fmt.Sprintf("envs/%s-lite.yaml", cr.Spec.Environment), cr.Namespace, envTemplate)
+	yamlBytes, err = loadYaml(client, fmt.Sprintf("envs/%s-lite.yaml", cr.Spec.Environment), cr.Namespace, envTemplate)
 	logrus.Infof("Trial env is %v", string(yamlBytes))
 	if err != nil {
 		return v1.Environment{}, err
@@ -175,7 +174,9 @@ func convertToConfigMapName(filename string) (configMapName, file string) {
 	name := constants.ConfigMapPrefix
 	result := strings.Split(filename, "/")
 	if len(result) > 1 {
-		name = strings.Join([]string{name, result[0]}, "-")
+		for i := 0; i < len(result)-1; i++ {
+			name = strings.Join([]string{name, result[i]}, "-")
+		}
 	}
 	return name, result[len(result)-1]
 }
