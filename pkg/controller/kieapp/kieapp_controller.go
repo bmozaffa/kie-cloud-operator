@@ -3,6 +3,7 @@ package kieapp
 import (
 	"context"
 	"fmt"
+	"gopkg.in/yaml.v2"
 	"reflect"
 	"strings"
 	"time"
@@ -297,7 +298,7 @@ func (reconciler *ReconcileKieApp) dcUpdateCheck(current, new oappsv1.Deployment
 }
 
 func (reconciler *ReconcileKieApp) NewEnv(cr *v1.KieApp) (v1.Environment, reconcile.Result, error) {
-	env, common, err := defaults.GetEnvironment(cr, reconciler.client)
+	env, err := defaults.GetEnvironment(cr, reconciler.client)
 	if err != nil {
 		return v1.Environment{}, reconcile.Result{}, err
 	}
@@ -355,7 +356,7 @@ func (reconciler *ReconcileKieApp) NewEnv(cr *v1.KieApp) (v1.Environment, reconc
 
 		env.Servers[i] = server
 	}
-	env = ConsolidateObjects(env, common, cr)
+	env = ConsolidateObjects(env, cr)
 	rResult, err := reconciler.updateObj(cr)
 	if err != nil {
 		return env, rResult, err
@@ -380,11 +381,11 @@ func (reconciler *ReconcileKieApp) NewEnv(cr *v1.KieApp) (v1.Environment, reconc
 	return env, rResult, nil
 }
 
-func ConsolidateObjects(env v1.Environment, common v1.KieAppSpec, cr *v1.KieApp) v1.Environment {
-	env.Console = rhpamcentr.ConstructObject(env.Console, common, cr)
-	for i, s := range env.Servers {
-		s = kieserver.ConstructObject(s, common, cr)
-		env.Servers[i] = s
+func ConsolidateObjects(env v1.Environment, cr *v1.KieApp) v1.Environment {
+	env.Console = rhpamcentr.ConstructObject(env.Console, cr)
+	for index, server := range env.Servers {
+		server = kieserver.ConstructObject(server, cr)
+		env.Servers[index] = server
 	}
 	return env
 }
@@ -472,6 +473,13 @@ func (reconciler *ReconcileKieApp) createObj(name, namespace string, obj runtime
 	if err != nil && errors.IsNotFound(err) {
 		// Define a new Object
 		logrus.Infof("Creating a new %s %s/%s\n", obj.GetObjectKind().GroupVersionKind().Kind, namespace, name)
+		//TODO temp
+		bytes, err := yaml.Marshal(obj)
+		if err != nil {
+			logrus.Warnf("Failed to marshall object %v", err)
+		} else {
+			logrus.Infof("Will create\n\n%v\n\n", string(bytes))
+		}
 		err = reconciler.client.Create(context.TODO(), obj)
 		if err != nil {
 			logrus.Warnf("Failed to create new %s %s/%s: %v\n", obj.GetObjectKind().GroupVersionKind().Kind, namespace, name, err)
