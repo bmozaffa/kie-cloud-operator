@@ -68,6 +68,7 @@ func getEnvTemplate(cr *v1.KieApp) v1.EnvTemplate {
 
 	// set default values for go template where not provided
 	config := &cr.Spec.CommonConfig
+	isTrialEnv := (cr.Spec.Environment == "trial")
 	if len(config.Version) == 0 {
 		pattern := regexp.MustCompile("[0-9]+")
 		config.Version = strings.Join(pattern.FindAllString(constants.RhpamVersion, -1), "")
@@ -90,19 +91,39 @@ func getEnvTemplate(cr *v1.KieApp) v1.EnvTemplate {
 		}
 	}
 	if len(config.KeyStorePassword) == 0 {
-		config.KeyStorePassword = string(shared.GeneratePassword(8))
+		if isTrialEnv {
+			config.KeyStorePassword = constants.DefaultPassword
+		} else {
+			config.KeyStorePassword = string(shared.GeneratePassword(8))
+		}
 	}
 	if len(config.AdminPassword) == 0 {
-		config.AdminPassword = string(shared.GeneratePassword(8))
+		if isTrialEnv {
+			config.AdminPassword = constants.DefaultPassword
+		} else {
+			config.AdminPassword = string(shared.GeneratePassword(8))
+		}
 	}
 	if len(config.ControllerPassword) == 0 {
-		config.ControllerPassword = string(shared.GeneratePassword(8))
+		if isTrialEnv {
+			config.ControllerPassword = constants.DefaultPassword
+		} else {
+			config.ControllerPassword = string(shared.GeneratePassword(8))
+		}
 	}
 	if len(config.ServerPassword) == 0 {
-		config.ServerPassword = string(shared.GeneratePassword(8))
+		if isTrialEnv {
+			config.ServerPassword = constants.DefaultPassword
+		} else {
+			config.ServerPassword = string(shared.GeneratePassword(8))
+		}
 	}
 	if len(config.MavenPassword) == 0 {
-		config.MavenPassword = string(shared.GeneratePassword(8))
+		if isTrialEnv {
+			config.MavenPassword = constants.DefaultPassword
+		} else {
+			config.MavenPassword = string(shared.GeneratePassword(8))
+		}
 	}
 
 	crTemplate := v1.Template{
