@@ -41,14 +41,14 @@ servers:
   - deploymentConfigs:
       ## KIE server deployment config BEGIN
       - metadata:
-          name: "{{$.ApplicationName}}-kieserver-{{$index}}"
+          name: "{{.KieName}}-kieserver-{{$index}}"
         spec:
           template:
             metadata:
-              name: "{{$.ApplicationName}}-kieserver-{{$index}}"
+              name: "{{.KieName}}-kieserver-{{$index}}"
             spec:
               containers:
-                - name: "{{$.ApplicationName}}-kieserver-{{$index}}"
+                - name: "{{.KieName}}-kieserver-{{$index}}"
                   env:
                     - name: DATASOURCES
                       value: "RHPAM"
@@ -91,7 +91,7 @@ servers:
           labels:
             app: "{{$.ApplicationName}}"
             application: "{{$.ApplicationName}}"
-            service: "{{$.ApplicationName}}-kieserver-{{$index}}"
+            service: "{{.KieName}}-kieserver-{{$index}}"
         spec:
           accessModes:
             - ReadWriteOnce

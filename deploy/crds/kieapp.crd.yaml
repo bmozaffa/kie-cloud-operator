@@ -103,7 +103,7 @@ spec:
                         description: Server name
                       deployments:
                         type: integer
-                        format: int16
+                        format: int
                         description: Number of Server sets that will be deployed
                       from:
                         type: object

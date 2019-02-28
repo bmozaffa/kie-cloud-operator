@@ -14,7 +14,7 @@ spec:
     servers:
       # Defines the KieServerID for this deployment
       - name: kieserver-a
-      # Replace the default image stream
+        # Replace the default image stream
         from:
           kind: ImageStreamTag
           name: library-s2i:latest
@@ -25,7 +25,8 @@ spec:
               value: rhpam-kieserver-library=org.openshift.quickstarts:rhpam-kieserver-library:1.4.0-SNAPSHOT
       # Defines the KieServerID for this deployment
       - name: kieserver-b
-      # Replace the default image stream
+        deployments: 2
+        # Replace the default image stream
         from:
           kind: ImageStreamTag
           name: approval-hr:latest

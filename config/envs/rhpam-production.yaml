@@ -37,17 +37,17 @@ servers:
     ## KIE server deployment config BEGIN
     deploymentConfigs:
       - metadata:
-          name: "{{$.ApplicationName}}-kieserver-{{$index}}"
+          name: "{{.KieName}}-kieserver-{{$index}}"
           labels:
             app: "{{$.ApplicationName}}"
             application: "{{$.ApplicationName}}"
-            service: "{{$.ApplicationName}}-kieserver-{{$index}}"
+            service: "{{.KieName}}-kieserver-{{$index}}"
         spec:
           replicas: 3
           template:
             spec:
               containers:
-                - name: "{{$.ApplicationName}}-kieserver-{{$index}}"
+                - name: "{{.KieName}}-kieserver-{{$index}}"
                   env:
                     - name: EXTERNAL_MAVEN_REPO_ID
                       value: ""

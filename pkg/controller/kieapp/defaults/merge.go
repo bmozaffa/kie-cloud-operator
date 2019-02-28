@@ -55,6 +55,7 @@ func mergeCustomObject(baseline v1.CustomObject, overwrite v1.CustomObject) v1.C
 	if overwrite.Omit {
 		object.Omit = overwrite.Omit
 	}
+	object.KieName = mergeKieName(baseline.KieName, overwrite.KieName)
 	object.PersistentVolumeClaims = mergePersistentVolumeClaims(baseline.PersistentVolumeClaims, overwrite.PersistentVolumeClaims)
 	object.ServiceAccounts = mergeServiceAccounts(baseline.ServiceAccounts, overwrite.ServiceAccounts)
 	object.Secrets = mergeSecrets(baseline.Secrets, overwrite.Secrets)
@@ -66,6 +67,13 @@ func mergeCustomObject(baseline v1.CustomObject, overwrite v1.CustomObject) v1.C
 	object.Services = mergeServices(baseline.Services, overwrite.Services)
 	object.Routes = mergeRoutes(baseline.Routes, overwrite.Routes)
 	return object
+}
+
+func mergeKieName(baseline string, overwrite string) string {
+	if overwrite != "" {
+		return overwrite
+	}
+	return baseline
 }
 
 func mergePersistentVolumeClaims(baseline []corev1.PersistentVolumeClaim, overwrite []corev1.PersistentVolumeClaim) []corev1.PersistentVolumeClaim {
