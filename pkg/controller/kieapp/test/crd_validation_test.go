@@ -1,6 +1,9 @@
 package test
 
 import (
+	"github.com/kiegroup/kie-cloud-operator/pkg/apis/app/v1"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/ghodss/yaml"
@@ -119,6 +122,73 @@ spec:
 
 	deleteNestedMapEntry(input, "spec", "objects")
 	assert.NoError(t, validate.AgainstSchema(schema, input, strfmt.Default))
+}
+
+func TestSchemaContent(t *testing.T) {
+	schema := *getSchema(t)
+	structType := reflect.TypeOf(v1.KieAppSpec{})
+	validateExists(t, schema, "spec", structType)
+}
+
+var nilSchema spec.Schema
+
+func validateExists(t *testing.T, schema spec.Schema, name string, reflectType reflect.Type) {
+	schema = schema.Properties[name]
+	expectedType := equivalentSchemaType(reflectType.Kind())
+	if len(schema.Type) == 1 {
+		println( name, schema.Type.Contains(expectedType), schema.Type[0], reflectType.Kind().String())
+	} else {
+		log.Info(schema.Type)
+	}
+	assert.True(t, schema.Type.Contains(expectedType), "Expected to find %s in the CRD with a type of %s", name, expectedType)
+	assert.NotNil(t, reflectType, "Could not find %s in CRD", name)
+	if reflectType.Kind() == reflect.Struct {
+		for index := 0; index < reflectType.NumField(); index++ {
+			field := reflectType.Field(index)
+			name := getFieldName(field)
+			if len(name) > 0 {
+				validateExists(t, schema, name, field.Type)
+			}
+		}
+	}
+}
+
+func equivalentSchemaType(kind reflect.Kind) string {
+	switch kind {
+	case reflect.String:
+		return "string"
+	case reflect.Int:
+		return "integer"
+	case reflect.Int8:
+		return "integer"
+	case reflect.Int16:
+		return "integer"
+	case reflect.Int32:
+		return "integer"
+	case reflect.Int64:
+		return "integer"
+	case reflect.Bool:
+		return "boolean"
+	case reflect.Struct:
+		return "object"
+	case reflect.Ptr:
+		return "object"
+	case reflect.Slice:
+		return "array"
+	}
+	return ""
+}
+
+func getFieldName(field reflect.StructField) string {
+	tag := string(field.Tag)
+	parts := strings.Split(tag, ":")
+	if len(parts) == 1 || parts[0] != "json" {
+		return field.Name
+	} else {
+		quotesRemoved := strings.Replace(parts[1], "\"", "", -1)
+		parts := strings.Split(quotesRemoved, ",")
+		return parts[0]
+	}
 }
 
 func deleteNestedMapEntry(object map[string]interface{}, keys ...string) {

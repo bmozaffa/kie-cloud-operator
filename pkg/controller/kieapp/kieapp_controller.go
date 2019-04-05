@@ -3,12 +3,14 @@ package kieapp
 import (
 	"context"
 	"fmt"
+	"github.com/kiegroup/kie-cloud-operator/pkg/controller/kieapp/helper"
 	"reflect"
 	"regexp"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"strings"
 	"time"
 
-	v1 "github.com/kiegroup/kie-cloud-operator/pkg/apis/app/v1"
+	"github.com/kiegroup/kie-cloud-operator/pkg/apis/app/v1"
 	"github.com/kiegroup/kie-cloud-operator/pkg/controller/kieapp/constants"
 	"github.com/kiegroup/kie-cloud-operator/pkg/controller/kieapp/defaults"
 	"github.com/kiegroup/kie-cloud-operator/pkg/controller/kieapp/logs"
@@ -81,6 +83,11 @@ func (reconciler *Reconciler) Reconcile(request reconcile.Request) (reconcile.Re
 		return rResult, err
 	}
 
+	reconcileHelper, err := helper.New(fake.NewFakeClient(), helper.Options{})
+	objectTypes := []helper.ObjectType{helper.DeploymentConfig, helper.BuildConfig}
+	requestedObjects := getRequestedObjects(env)
+	err = reconcileHelper.Reconcile(objectTypes, instance, requestedObjects)
+
 	dcUpdated, err := reconciler.updateDeploymentConfigs(instance, env)
 
 	if err != nil {
@@ -127,6 +134,37 @@ func (reconciler *Reconciler) Reconcile(request reconcile.Request) (reconcile.Re
 	}
 
 	return reconcile.Result{}, nil
+}
+
+func getRequestedObjects(env v1.Environment) map[helper.ObjectType][]runtime.Object {
+	objs := make(map[helper.ObjectType][]runtime.Object)
+
+	var dcs []runtime.Object
+	for dcIndex := range env.Console.DeploymentConfigs {
+		dcs = append(dcs, &env.Console.DeploymentConfigs[dcIndex])
+	}
+	for index := range env.Others {
+		//dcs = append(dcs, env.Others[index].DeploymentConfigs[0:2])//TODO find syntax to do this inline
+		for dcIndex := range env.Others[index].DeploymentConfigs {
+			dcs = append(dcs, &env.Others[index].DeploymentConfigs[dcIndex])
+		}
+	}
+	for index := range env.Servers {
+		for dcIndex := range env.Servers[index].DeploymentConfigs {
+			dcs = append(dcs, &env.Servers[index].DeploymentConfigs[dcIndex])
+		}
+	}
+	objs[helper.DeploymentConfig] = dcs
+
+	var bcs []runtime.Object
+	for index := range env.Servers {
+		for bcIndex := range env.Servers[index].BuildConfigs {
+			dcs = append(dcs, &env.Servers[index].BuildConfigs[bcIndex])
+		}
+	}
+	objs[helper.BuildConfig] = bcs
+
+	return objs
 }
 
 func (reconciler *Reconciler) updateDeploymentConfigs(instance *v1.KieApp, env v1.Environment) (bool, error) {
