@@ -3,12 +3,14 @@ package kieapp
 import (
 	"context"
 	"fmt"
+	"github.com/RHsyseng/operator-utils/pkg/resource"
+	"github.com/RHsyseng/operator-utils/pkg/resource/compare"
+	"github.com/RHsyseng/operator-utils/pkg/resource/write"
 	"reflect"
 	"regexp"
 	"strings"
 	"time"
 
-	"github.com/RHsyseng/operator-utils/pkg/olm"
 	v1 "github.com/kiegroup/kie-cloud-operator/pkg/apis/app/v1"
 	"github.com/kiegroup/kie-cloud-operator/pkg/controller/kieapp/constants"
 	"github.com/kiegroup/kie-cloud-operator/pkg/controller/kieapp/defaults"
@@ -25,7 +27,6 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -79,24 +80,43 @@ func (reconciler *Reconciler) Reconcile(request reconcile.Request) (reconcile.Re
 		})
 	}
 
-	env, rResult, err := reconciler.newEnv(instance)
+	deployed, err := reconciler.getDeployedResources(instance)
+	if err != nil {
+		reconciler.setFailedStatus(instance, v1.UnknownReason, err)
+		return reconcile.Result{}, err
+	}
+	env, err := defaults.GetEnvironment(instance, reconciler.Service)
 	if err != nil {
 		reconciler.setFailedStatus(instance, v1.ConfigurationErrorReason, err)
-		return rResult, err
-	}
-
-	dcUpdated, err := reconciler.updateDeploymentConfigs(instance, env)
-	if err != nil {
 		return reconcile.Result{}, err
 	}
-	if dcUpdated && status.SetProvisioning(instance) {
-		return reconciler.UpdateObj(instance)
+	env = reconciler.setEnvironmentProperties(instance, env)
+	requestedResources := reconciler.getKubernetesResources(instance, env)
+	for index := range requestedResources {
+		requestedResources[index].SetNamespace(instance.Namespace)
 	}
-	bcUpdated, err := reconciler.updateBuildConfigs(instance, env)
-	if err != nil {
-		return reconcile.Result{}, err
+	requested := compare.NewMapBuilder().DisparateTypeItems(requestedResources...).Map()
+	comparator := compare.NewMapComparator()
+	ignoreSecretDataValues(&comparator)
+	deltas := comparator.Compare(deployed, requested)
+	var hasUpdates bool
+	for resourceType, delta := range deltas {
+		log.Debugf("Will create %d, update %d, and delete %d instances of %v", len(delta.Added), len(delta.Updated), len(delta.Removed), resourceType)
+		added, err := write.AddResources(instance, reconciler.Service.GetScheme(), reconciler.Service, delta.Added)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+		updated, err := write.UpdateResources(instance, deployed[resourceType], reconciler.Service.GetScheme(), reconciler.Service, delta.Updated)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+		removed, err := write.RemoveResources(reconciler.Service, delta.Removed)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+		hasUpdates = hasUpdates || added || updated || removed
 	}
-	if bcUpdated && status.SetProvisioning(instance) {
+	if hasUpdates && status.SetProvisioning(instance) {
 		return reconciler.UpdateObj(instance)
 	}
 
@@ -141,100 +161,21 @@ func (reconciler *Reconciler) Reconcile(request reconcile.Request) (reconcile.Re
 	return reconcile.Result{}, nil
 }
 
-func (reconciler *Reconciler) updateDeploymentConfigs(instance *v1.KieApp, env v1.Environment) (bool, error) {
-	log := log.With("kind", instance.Kind, "name", instance.Name, "namespace", instance.Namespace)
-	listOps := &client.ListOptions{Namespace: instance.Namespace}
-	dcList := &oappsv1.DeploymentConfigList{}
-	err := reconciler.Service.List(context.TODO(), listOps, dcList)
-	if err != nil {
-		log.Warn("Failed to list dc's. ", err)
-		reconciler.setFailedStatus(instance, v1.UnknownReason, err)
-		return false, err
+func ignoreSecretDataValues(comparator *compare.MapComparator) {
+	secretType := reflect.TypeOf(corev1.Secret{})
+	secretComparator := comparator.Comparator.GetComparator(secretType)
+	newSecretComparator := func(deployed resource.KubernetesResource, requested resource.KubernetesResource) bool {
+		secret1 := deployed.(*corev1.Secret).DeepCopy()
+		secret2 := requested.(*corev1.Secret).DeepCopy()
+		for key := range secret1.Data {
+			secret1.Data[key] = []byte{}
+		}
+		for key := range secret2.Data {
+			secret2.Data[key] = []byte{}
+		}
+		return secretComparator(secret1, secret2)
 	}
-	var dcs []oappsv1.DeploymentConfig
-	for _, dc := range dcList.Items {
-		for _, ownerRef := range dc.GetOwnerReferences() {
-			if ownerRef.UID == instance.UID {
-				dcs = append(dcs, dc)
-				break
-			}
-		}
-	}
-	instance.Status.Deployments = olm.GetDeploymentConfigStatus(dcs)
-
-	var dcUpdates []oappsv1.DeploymentConfig
-	for _, dc := range dcs {
-		for _, cDc := range env.Console.DeploymentConfigs {
-			if dc.Name == cDc.Name {
-				dcUpdates = reconciler.dcUpdateCheck(dc, cDc, dcUpdates, instance)
-			}
-		}
-		for _, server := range env.Servers {
-			for _, sDc := range server.DeploymentConfigs {
-				if dc.Name == sDc.Name {
-					dcUpdates = reconciler.dcUpdateCheck(dc, sDc, dcUpdates, instance)
-				}
-			}
-		}
-		for _, srDc := range env.SmartRouter.DeploymentConfigs {
-			if dc.Name == srDc.Name {
-				dcUpdates = reconciler.dcUpdateCheck(dc, srDc, dcUpdates, instance)
-			}
-		}
-		for _, other := range env.Others {
-			for _, oDc := range other.DeploymentConfigs {
-				if dc.Name == oDc.Name {
-					dcUpdates = reconciler.dcUpdateCheck(dc, oDc, dcUpdates, instance)
-				}
-			}
-		}
-	}
-	log.Debugf("There are %d updated DCs", len(dcUpdates))
-	if len(dcUpdates) > 0 {
-		for _, uDc := range dcUpdates {
-			_, err := reconciler.UpdateObj(&uDc)
-			if err != nil {
-				reconciler.setFailedStatus(instance, v1.DeploymentFailedReason, err)
-				return false, err
-			}
-		}
-		return true, nil
-	}
-	return false, nil
-}
-
-func (reconciler *Reconciler) updateBuildConfigs(instance *v1.KieApp, env v1.Environment) (bool, error) {
-	log := log.With("kind", instance.Kind, "name", instance.Name, "namespace", instance.Namespace)
-	listOps := &client.ListOptions{Namespace: instance.Namespace}
-	bcList := &buildv1.BuildConfigList{}
-	err := reconciler.Service.List(context.TODO(), listOps, bcList)
-	if err != nil {
-		log.Warn("Failed to list bc's. ", err)
-		reconciler.setFailedStatus(instance, v1.UnknownReason, err)
-		return false, err
-	}
-
-	var bcUpdates []buildv1.BuildConfig
-	for _, bc := range bcList.Items {
-		for _, server := range env.Servers {
-			for _, sBc := range server.BuildConfigs {
-				if bc.Name == sBc.Name {
-					bcUpdates = reconciler.bcUpdateCheck(bc, sBc, bcUpdates, instance)
-				}
-			}
-		}
-	}
-	if len(bcUpdates) > 0 {
-		for _, uBc := range bcUpdates {
-			_, err := reconciler.UpdateObj(&uBc)
-			if err != nil {
-				reconciler.setFailedStatus(instance, v1.DeploymentFailedReason, err)
-				return false, err
-			}
-		}
-		return true, nil
-	}
-	return false, nil
+	comparator.Comparator.SetComparator(secretType, newSecretComparator)
 }
 
 func (reconciler *Reconciler) hasSpecChanges(instance, cached *v1.KieApp) bool {
@@ -293,9 +234,9 @@ func (reconciler *Reconciler) createLocalImageTag(tagRefName string, cr *v1.KieA
 	}
 	product := defaults.GetProduct(cr.Spec.Environment)
 	tagName := fmt.Sprintf("%s:%s", result[0], result[1])
-	version := []byte(cr.Spec.CommonConfig.Version)
+	versionInfo := []byte(cr.Spec.CommonConfig.Version)
 	imageName := tagName
-	regContext := fmt.Sprintf("%s-%s", product, string(version[0]))
+	regContext := fmt.Sprintf("%s-%s", product, string(versionInfo[0]))
 
 	// default registry settings
 	registry := &v1.KieAppRegistry{
@@ -354,82 +295,7 @@ func (reconciler *Reconciler) createLocalImageTag(tagRefName string, cr *v1.KieA
 	return nil
 }
 
-func (reconciler *Reconciler) dcUpdateCheck(current, new oappsv1.DeploymentConfig, dcUpdates []oappsv1.DeploymentConfig, cr *v1.KieApp) []oappsv1.DeploymentConfig {
-	log := log.With("kind", current.GetObjectKind().GroupVersionKind().Kind, "name", current.Name, "namespace", current.Namespace)
-	update := false
-	if !reflect.DeepEqual(current.Spec.Template.Labels, new.Spec.Template.Labels) {
-		log.Debug("Changes detected in labels.", " OLD - ", current.Spec.Template.Labels, " NEW - ", new.Spec.Template.Labels)
-		update = true
-	}
-	if current.Spec.Replicas != new.Spec.Replicas {
-		log.Debug("Changes detected in replicas.", " OLD - ", current.Spec.Replicas, " NEW - ", new.Spec.Replicas)
-		update = true
-	}
-
-	cContainer := current.Spec.Template.Spec.Containers[0]
-	nContainer := new.Spec.Template.Spec.Containers[0]
-	if !shared.EnvVarCheck(cContainer.Env, nContainer.Env) {
-		log.Debug("Changes detected in 'Env' config.", " OLD - ", cContainer.Env, " NEW - ", nContainer.Env)
-		update = true
-	}
-	if !reflect.DeepEqual(cContainer.Resources, nContainer.Resources) {
-		log.Debug("Changes detected in 'Resource' config.", " OLD - ", cContainer.Resources, " NEW - ", nContainer.Resources)
-		update = true
-	}
-	if update {
-		dcnew := new
-		err := controllerutil.SetControllerReference(cr, &dcnew, reconciler.Service.GetScheme())
-		if err != nil {
-			log.Error("Error setting controller reference for dc. ", err)
-		}
-		dcnew.SetNamespace(current.Namespace)
-		dcnew.SetResourceVersion(current.ResourceVersion)
-		dcnew.SetGroupVersionKind(oappsv1.SchemeGroupVersion.WithKind("DeploymentConfig"))
-
-		dcUpdates = append(dcUpdates, dcnew)
-	}
-	return dcUpdates
-}
-
-func (reconciler *Reconciler) bcUpdateCheck(current, new buildv1.BuildConfig, bcUpdates []buildv1.BuildConfig, cr *v1.KieApp) []buildv1.BuildConfig {
-	log := log.With("kind", current.GetObjectKind().GroupVersionKind().Kind, "name", current.Name, "namespace", current.Namespace)
-	update := false
-
-	if !reflect.DeepEqual(current.Spec.Source, new.Spec.Source) {
-		log.Debug("Changes detected in 'Source' config.", " OLD - ", current.Spec.Source, " NEW - ", new.Spec.Source)
-		update = true
-	}
-	if !shared.EnvVarCheck(current.Spec.Strategy.SourceStrategy.Env, new.Spec.Strategy.SourceStrategy.Env) {
-		log.Debug("Changes detected in 'Env' config.", " OLD - ", current.Spec.Strategy.SourceStrategy.Env, " NEW - ", new.Spec.Strategy.SourceStrategy.Env)
-		update = true
-	}
-	if !reflect.DeepEqual(current.Spec.Resources, new.Spec.Resources) {
-		log.Debug("Changes detected in 'Resource' config.", " OLD - ", current.Spec.Resources, " NEW - ", new.Spec.Resources)
-		update = true
-	}
-
-	if update {
-		bcnew := new
-		err := controllerutil.SetControllerReference(cr, &bcnew, reconciler.Service.GetScheme())
-		if err != nil {
-			log.Error("Error setting controller reference for bc. ", err)
-		}
-		bcnew.SetNamespace(current.Namespace)
-		bcnew.SetResourceVersion(current.ResourceVersion)
-		bcnew.SetGroupVersionKind(buildv1.SchemeGroupVersion.WithKind("BuildConfig"))
-
-		bcUpdates = append(bcUpdates, bcnew)
-	}
-	return bcUpdates
-}
-
-// newEnv creates an Environment generated from the given KieApp
-func (reconciler *Reconciler) newEnv(cr *v1.KieApp) (v1.Environment, reconcile.Result, error) {
-	env, err := defaults.GetEnvironment(cr, reconciler.Service)
-	if err != nil {
-		return env, reconcile.Result{Requeue: true}, err
-	}
-
+func (reconciler *Reconciler) setEnvironmentProperties(cr *v1.KieApp, env v1.Environment) v1.Environment {
 	// console keystore generation
 	if !env.Console.Omit {
 		consoleCN := ""
@@ -507,30 +373,20 @@ func (reconciler *Reconciler) newEnv(cr *v1.KieApp) (v1.Environment, reconcile.R
 			))
 		}
 	}
-	env = defaults.ConsolidateObjects(env, cr)
+	return defaults.ConsolidateObjects(env, cr)
+}
 
-	rResult, err := reconciler.CreateCustomObjects(env.Console, cr)
-	if err != nil {
-		return env, rResult, err
-	}
-	rResult, err = reconciler.CreateCustomObjects(env.SmartRouter, cr)
-	if err != nil {
-		return env, rResult, err
-	}
+func (reconciler *Reconciler) getKubernetesResources(cr *v1.KieApp, env v1.Environment) []resource.KubernetesResource {
+	var resources []resource.KubernetesResource
+	resources = append(resources, reconciler.getCustomObjectResources(env.Console, cr)...)
+	resources = append(resources, reconciler.getCustomObjectResources(env.SmartRouter, cr)...)
 	for _, s := range env.Servers {
-		rResult, err = reconciler.CreateCustomObjects(s, cr)
-		if err != nil {
-			return env, rResult, err
-		}
+		resources = append(resources, reconciler.getCustomObjectResources(s, cr)...)
 	}
 	for _, o := range env.Others {
-		rResult, err = reconciler.CreateCustomObjects(o, cr)
-		if err != nil {
-			return env, rResult, err
-		}
+		resources = append(resources, reconciler.getCustomObjectResources(o, cr)...)
 	}
-
-	return env, rResult, nil
+	return resources
 }
 
 func generateKeystoreSecret(secretName, keystoreCN string, cr *v1.KieApp) corev1.Secret {
@@ -549,12 +405,12 @@ func generateKeystoreSecret(secretName, keystoreCN string, cr *v1.KieApp) corev1
 	}
 }
 
-// CreateCustomObjects goes through all the different object types in the given CustomObject and creates them, if necessary
-func (reconciler *Reconciler) CreateCustomObjects(object v1.CustomObject, cr *v1.KieApp) (reconcile.Result, error) {
+// getCustomObjectResources returns all kubernetes resources that need to be created for the given CustomObject
+func (reconciler *Reconciler) getCustomObjectResources(object v1.CustomObject, cr *v1.KieApp) []resource.KubernetesResource {
+	var allObjects []resource.KubernetesResource
 	if object.Omit {
-		return reconcile.Result{}, nil
+		return allObjects
 	}
-	var allObjects []v1.OpenShiftObject
 	for index := range object.PersistentVolumeClaims {
 		object.PersistentVolumeClaims[index].SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("PersistentVolumeClaim"))
 		allObjects = append(allObjects, &object.PersistentVolumeClaims[index])
@@ -616,15 +472,7 @@ func (reconciler *Reconciler) CreateCustomObjects(object v1.CustomObject, cr *v1
 		}
 		allObjects = append(allObjects, &object.BuildConfigs[index])
 	}
-
-	for _, obj := range allObjects {
-		_, err := reconciler.createCustomObject(obj, cr)
-		if err != nil {
-			return reconcile.Result{}, err
-		}
-	}
-
-	return reconcile.Result{}, nil
+	return allObjects
 }
 
 func (reconciler *Reconciler) ensureImageStream(name string, namespace string, cr *v1.KieApp) (string, error) {
@@ -656,33 +504,14 @@ func (reconciler *Reconciler) ensureImageStream(name string, namespace string, c
 	return cr.Namespace, nil
 }
 
-// createCustomObject checks for an object's existence before creating it
-func (reconciler *Reconciler) createCustomObject(obj v1.OpenShiftObject, cr *v1.KieApp) (reconcile.Result, error) {
-	name := obj.GetName()
-	namespace := cr.GetNamespace()
-	log := log.With("kind", obj.GetObjectKind().GroupVersionKind().Kind, "name", name, "namespace", namespace)
-
-	err := controllerutil.SetControllerReference(cr, obj, reconciler.Service.GetScheme())
-	if err != nil {
-		log.Error("Failed to create. ", err)
-		return reconcile.Result{}, err
-	}
-	obj.SetNamespace(namespace)
-	emptyObj := reflect.New(reflect.TypeOf(obj).Elem()).Interface().(runtime.Object)
-	return reconciler.createObj(
-		obj,
-		reconciler.Service.Get(context.TODO(), types.NamespacedName{Name: name, Namespace: namespace}, emptyObj),
-	)
-}
-
 // createObj creates an object based on the error passed in from a `client.Get`
-func (reconciler *Reconciler) createObj(obj v1.OpenShiftObject, err error) (reconcile.Result, error) {
-	log := log.With("kind", obj.GetObjectKind().GroupVersionKind().Kind, "name", obj.GetName(), "namespace", obj.GetNamespace())
+func (reconciler *Reconciler) createObj(object resource.KubernetesResource, err error) (reconcile.Result, error) {
+	log := log.With("kind", object.GetObjectKind().GroupVersionKind().Kind, "name", object.GetName(), "namespace", object.GetNamespace())
 
 	if err != nil && errors.IsNotFound(err) {
 		// Define a new Object
 		log.Info("Creating")
-		err = reconciler.Service.Create(context.TODO(), obj)
+		err = reconciler.Service.Create(context.TODO(), object)
 		if err != nil {
 			log.Warn("Failed to create object. ", err)
 			return reconcile.Result{}, err
@@ -785,6 +614,7 @@ func (reconciler *Reconciler) CreateConfigMaps(myDep *appsv1.Deployment) {
 						// if backup configmap and existing backup have different data
 						if !reflect.DeepEqual(existingCM.Data, existingBackupCM.Data) || !reflect.DeepEqual(existingCM.BinaryData, existingBackupCM.BinaryData) {
 							existingBackupCM.Data = existingCM.Data
+						_:
 							reconciler.UpdateObj(existingBackupCM)
 						}
 					}
@@ -800,12 +630,11 @@ func (reconciler *Reconciler) createConfigMap(obj v1.OpenShiftObject) (*corev1.C
 	err := reconciler.Service.Get(context.TODO(), types.NamespacedName{Name: obj.GetName(), Namespace: obj.GetNamespace()}, emptyObj)
 	if errors.IsNotFound(err) {
 		// attempt creation of configmap if doesn't exist
+	_:
 		reconciler.createObj(obj, err)
 		return &corev1.ConfigMap{}, false
 	} else if err != nil {
-		if err != nil {
-			log.Error(err)
-		}
+		log.Error(err)
 		return &corev1.ConfigMap{}, false
 	}
 	return emptyObj, true
@@ -848,4 +677,230 @@ func (reconciler *Reconciler) checkKieServerConfigMap(instance *v1.KieApp, env v
 			}
 		}
 	}
+}
+
+func (reconciler *Reconciler) getDeployedResources(instance *v1.KieApp) (map[reflect.Type][]resource.KubernetesResource, error) {
+	log := log.With("kind", instance.Kind, "name", instance.Name, "namespace", instance.Namespace)
+	resourceMap := make(map[reflect.Type][]resource.KubernetesResource)
+
+	listOps := &client.ListOptions{Namespace: instance.Namespace}
+
+	dcList := &oappsv1.DeploymentConfigList{}
+	err := reconciler.Service.List(context.TODO(), listOps, dcList)
+	if err != nil {
+		log.Warn("Failed to list DCs. ", err)
+		return nil, err
+	}
+	var dcs []resource.KubernetesResource
+	for index := range dcList.Items {
+		dc := dcList.Items[index]
+		for _, ownerRef := range dc.GetOwnerReferences() {
+			if ownerRef.UID == instance.UID {
+				dcs = append(dcs, &dc)
+				break
+			}
+		}
+	}
+	resourceMap[reflect.TypeOf(oappsv1.DeploymentConfig{})] = dcs
+
+	pvcList := &corev1.PersistentVolumeClaimList{}
+	err = reconciler.Service.List(context.TODO(), listOps, pvcList)
+	if err != nil {
+		log.Warn("Failed to list PersistentVolumeClaims. ", err)
+		return nil, err
+	}
+	var pvcs []resource.KubernetesResource
+	for index := range pvcList.Items {
+		pvc := pvcList.Items[index]
+		for _, ownerRef := range pvc.GetOwnerReferences() {
+			if ownerRef.UID == instance.UID {
+				pvcs = append(pvcs, &pvc)
+				break
+			}
+		}
+	}
+	resourceMap[reflect.TypeOf(corev1.PersistentVolumeClaim{})] = pvcs
+
+	saList := &corev1.ServiceAccountList{}
+	err = reconciler.Service.List(context.TODO(), listOps, saList)
+	if err != nil {
+		log.Warn("Failed to list ServiceAccounts. ", err)
+		return nil, err
+	}
+	var sas []resource.KubernetesResource
+	for index := range saList.Items {
+		sa := saList.Items[index]
+		for _, ownerRef := range sa.GetOwnerReferences() {
+			if ownerRef.UID == instance.UID {
+				sas = append(sas, &sa)
+				break
+			}
+		}
+	}
+	resourceMap[reflect.TypeOf(corev1.ServiceAccount{})] = sas
+
+	//secretList := &corev1.SecretList{}
+	var secrets []resource.KubernetesResource
+	//err = reconciler.Service.List(context.TODO(), listOps, secretList) //TODO: can't list secrets due bug:
+	// https://github.com/kubernetes-sigs/controller-runtime/issues/362
+	// multiple group-version-kinds associated with type *v1.SecretList, refusing to guess at one
+	// Will work around by loading known secrets instead
+
+	for _, res := range dcs {
+		dc := res.(*oappsv1.DeploymentConfig)
+		for _, volume := range dc.Spec.Template.Spec.Volumes {
+			if volume.Secret != nil {
+				name := volume.Secret.SecretName
+				secret := &corev1.Secret{}
+				err := reconciler.Service.Get(context.TODO(), types.NamespacedName{Name: name, Namespace: instance.GetNamespace()}, secret)
+				if err != nil && !errors.IsNotFound(err) {
+					log.Warn("Failed to load Secret", err)
+					return nil, err
+				}
+				secrets = append(secrets, secret)
+			}
+		}
+	}
+	//if err != nil {
+	//	log.Warn("Failed to list Secrets. ", err)
+	//	return nil, err
+	//}
+	//for index := range secretList.Items {
+	//	secret := secretList.Items[index]
+	//	for _, ownerRef := range secret.GetOwnerReferences() {
+	//		if ownerRef.UID == instance.UID {
+	//			secrets = append(secrets, &secret)
+	//			break
+	//		}
+	//	}
+	//}
+	resourceMap[reflect.TypeOf(corev1.Secret{})] = secrets
+
+	roleList := &rbacv1.RoleList{}
+	err = reconciler.Service.List(context.TODO(), listOps, roleList)
+	if err != nil {
+		log.Warn("Failed to list roles. ", err)
+		return nil, err
+	}
+	var roles []resource.KubernetesResource
+	for index := range roleList.Items {
+		role := roleList.Items[index]
+		for _, ownerRef := range role.GetOwnerReferences() {
+			if ownerRef.UID == instance.UID {
+				roles = append(roles, &role)
+				break
+			}
+		}
+	}
+	resourceMap[reflect.TypeOf(rbacv1.Role{})] = roles
+
+	roleBindingList := &rbacv1.RoleBindingList{}
+	err = reconciler.Service.List(context.TODO(), listOps, roleBindingList)
+	if err != nil {
+		log.Warn("Failed to list roleBindings. ", err)
+		return nil, err
+	}
+	var roleBindings []resource.KubernetesResource
+	for index := range roleBindingList.Items {
+		roleBinding := roleBindingList.Items[index]
+		for _, ownerRef := range roleBinding.GetOwnerReferences() {
+			if ownerRef.UID == instance.UID {
+				roleBindings = append(roleBindings, &roleBinding)
+				break
+			}
+		}
+	}
+	resourceMap[reflect.TypeOf(rbacv1.RoleBinding{})] = roleBindings
+
+	serviceList := &corev1.ServiceList{}
+	err = reconciler.Service.List(context.TODO(), listOps, serviceList)
+	if err != nil {
+		log.Warn("Failed to list services. ", err)
+		return nil, err
+	}
+	var services []resource.KubernetesResource
+	for index := range serviceList.Items {
+		service := serviceList.Items[index]
+		for _, ownerRef := range service.GetOwnerReferences() {
+			if ownerRef.UID == instance.UID {
+				services = append(services, &service)
+				break
+			}
+		}
+	}
+	resourceMap[reflect.TypeOf(corev1.Service{})] = services
+
+	statefulSetList := &appsv1.StatefulSetList{}
+	err = reconciler.Service.List(context.TODO(), listOps, statefulSetList)
+	if err != nil {
+		log.Warn("Failed to list statefulSets. ", err)
+		return nil, err
+	}
+	var statefulSets []resource.KubernetesResource
+	for index := range statefulSetList.Items {
+		statefulSet := statefulSetList.Items[index]
+		for _, ownerRef := range statefulSet.GetOwnerReferences() {
+			if ownerRef.UID == instance.UID {
+				statefulSets = append(statefulSets, &statefulSet)
+				break
+			}
+		}
+	}
+	resourceMap[reflect.TypeOf(appsv1.StatefulSet{})] = statefulSets
+
+	RouteList := &routev1.RouteList{}
+	err = reconciler.Service.List(context.TODO(), listOps, RouteList)
+	if err != nil {
+		log.Warn("Failed to list routes. ", err)
+		return nil, err
+	}
+	var routes []resource.KubernetesResource
+	for index := range RouteList.Items {
+		route := RouteList.Items[index]
+		for _, ownerRef := range route.GetOwnerReferences() {
+			if ownerRef.UID == instance.UID {
+				routes = append(routes, &route)
+				break
+			}
+		}
+	}
+	resourceMap[reflect.TypeOf(routev1.Route{})] = routes
+
+	imageStreamList := &oimagev1.ImageStreamList{}
+	err = reconciler.Service.List(context.TODO(), listOps, imageStreamList)
+	if err != nil {
+		log.Warn("Failed to list imageStreams. ", err)
+		return nil, err
+	}
+	var imageStreams []resource.KubernetesResource
+	for index := range imageStreamList.Items {
+		imageStream := imageStreamList.Items[index]
+		for _, ownerRef := range imageStream.GetOwnerReferences() {
+			if ownerRef.UID == instance.UID {
+				imageStreams = append(imageStreams, &imageStream)
+				break
+			}
+		}
+	}
+	resourceMap[reflect.TypeOf(oimagev1.ImageStream{})] = imageStreams
+
+	buildConfigList := &buildv1.BuildConfigList{}
+	err = reconciler.Service.List(context.TODO(), listOps, buildConfigList)
+	if err != nil {
+		log.Warn("Failed to list buildConfigs. ", err)
+		return nil, err
+	}
+	var buildConfigs []resource.KubernetesResource
+	for index := range buildConfigList.Items {
+		buildConfig := buildConfigList.Items[index]
+		for _, ownerRef := range buildConfig.GetOwnerReferences() {
+			if ownerRef.UID == instance.UID {
+				buildConfigs = append(buildConfigs, &buildConfig)
+				break
+			}
+		}
+	}
+	resourceMap[reflect.TypeOf(buildv1.BuildConfig{})] = buildConfigs
+
+	return resourceMap, nil
 }

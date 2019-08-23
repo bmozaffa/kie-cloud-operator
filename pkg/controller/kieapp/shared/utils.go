@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"github.com/RHsyseng/operator-utils/pkg/resource"
 	"math/big"
 	"math/rand"
 	"time"
@@ -165,4 +166,13 @@ func EnvVarCheck(dst, src []corev1.EnvVar) bool {
 		}
 	}
 	return true
+}
+
+func FindResource(resources []resource.KubernetesResource, namespace string, name string) resource.KubernetesResource {
+	for index := range resources {
+		if resources[index].GetNamespace() == namespace && resources[index].GetName() == name {
+			return resources[index]
+		}
+	}
+	return nil
 }
