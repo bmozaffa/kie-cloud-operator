@@ -17,7 +17,7 @@ import (
 // checkProductUpgrade ...
 func checkProductUpgrade(cr *api.KieApp) (minor, micro bool, err error) {
 	setDefaults(cr)
-	if checkVersion(cr.Spec.Version) {
+	if CheckVersion(cr.Spec.Version) {
 		if cr.Spec.Version != constants.CurrentVersion && cr.Spec.Upgrades.Enabled {
 			micro = cr.Spec.Upgrades.Enabled
 			minor = cr.Spec.Upgrades.Minor
@@ -28,8 +28,8 @@ func checkProductUpgrade(cr *api.KieApp) (minor, micro bool, err error) {
 	return minor, micro, err
 }
 
-// checkVersion ...
-func checkVersion(productVersion string) bool {
+// CheckVersion ...
+func CheckVersion(productVersion string) bool {
 	for _, version := range constants.SupportedVersions {
 		if version == productVersion {
 			return true
@@ -55,7 +55,7 @@ func MajorMinorMicro(productVersion string) (major, minor, micro string) {
 
 // getConfigVersionDiffs ...
 func getConfigVersionDiffs(fromVersion, toVersion string, service api.PlatformService) error {
-	if checkVersion(fromVersion) && checkVersion(toVersion) {
+	if CheckVersion(fromVersion) && CheckVersion(toVersion) {
 		fromList, toList := getConfigVersionLists(fromVersion, toVersion)
 		diffs := configDiffs(fromList, toList)
 		cmDiffs := diffs
@@ -90,7 +90,7 @@ func getConfigVersionDiffs(fromVersion, toVersion string, service api.PlatformSe
 func getConfigVersionLists(fromVersion, toVersion string) (configFromList, configToList map[string][]map[string]string) {
 	fromList := map[string][]map[string]string{}
 	toList := map[string][]map[string]string{}
-	if checkVersion(fromVersion) && checkVersion(toVersion) {
+	if CheckVersion(fromVersion) && CheckVersion(toVersion) {
 		box := packr.New("config", "../../../../config")
 		if box.HasDir(fromVersion) && box.HasDir(toVersion) {
 			cmList := getCMListfromBox(box)

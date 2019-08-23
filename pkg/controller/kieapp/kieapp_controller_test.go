@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	v1 "github.com/kiegroup/kie-cloud-operator/pkg/apis/app/v1"
 	api "github.com/kiegroup/kie-cloud-operator/pkg/apis/app/v2"
 	"github.com/kiegroup/kie-cloud-operator/pkg/controller/kieapp/constants"
 	"github.com/kiegroup/kie-cloud-operator/pkg/controller/kieapp/defaults"
@@ -255,6 +256,30 @@ func TestCreateImageStreamsLatest(t *testing.T) {
 	assert.Equal(t, fmt.Sprintf("%s/jboss-datagrid-7/%s:latest", constants.ImageRegistry, constants.VersionConstants[cr.Spec.Version].DatagridImage), isTag.Tag.From.Name)
 }
 
+func TestAPIConversion(t *testing.T) {
+	crNamespacedName := getNamespacedName("namespace", "cr")
+	crv1 := getV1Instance(crNamespacedName)
+	crv1.Spec = v1.KieAppSpec{
+		Environment: v1.RhpamTrial,
+		CommonConfig: v1.CommonConfig{
+			Version: constants.LastMinorVersion,
+		},
+	}
+	service := test.MockService()
+	err := service.Create(context.TODO(), crv1)
+	assert.Nil(t, err)
+	reconciler := Reconciler{Service: service}
+	result, err := reconciler.Reconcile(reconcile.Request{NamespacedName: crNamespacedName})
+	assert.Nil(t, err)
+	assert.Equal(t, reconcile.Result{Requeue: true}, result, "Deployment should be created but requeued for status updates")
+
+	cr := reloadCR(t, service, crNamespacedName)
+	assert.Equal(t, api.SchemeGroupVersion.String(), cr.APIVersion)
+	assert.Equal(t, constants.LastMinorVersion, cr.Spec.Version)
+	assert.Equal(t, api.ProvisioningConditionType, cr.Status.Conditions[0].Type)
+	assert.Len(t, cr.Status.Deployments.Stopped, 2, "Expect 2 stopped deployments")
+}
+
 func TestStatusDeploymentsProgression(t *testing.T) {
 	crNamespacedName := getNamespacedName("namespace", "cr")
 	cr := getInstance(crNamespacedName)
@@ -342,4 +367,14 @@ func getInstance(namespacedName types.NamespacedName) *api.KieApp {
 		},
 	}
 	return cr
+}
+
+func getV1Instance(namespacedName types.NamespacedName) *v1.KieApp {
+	crv1 := &v1.KieApp{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      namespacedName.Name,
+			Namespace: namespacedName.Namespace,
+		},
+	}
+	return crv1
 }

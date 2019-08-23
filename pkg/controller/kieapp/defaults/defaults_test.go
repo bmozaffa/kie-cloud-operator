@@ -9,6 +9,7 @@ import (
 
 	"github.com/ghodss/yaml"
 	"github.com/gobuffalo/packr/v2"
+	v1 "github.com/kiegroup/kie-cloud-operator/pkg/apis/app/v1"
 	api "github.com/kiegroup/kie-cloud-operator/pkg/apis/app/v2"
 	"github.com/kiegroup/kie-cloud-operator/pkg/controller/kieapp/constants"
 	"github.com/kiegroup/kie-cloud-operator/pkg/controller/kieapp/test"
@@ -1843,21 +1844,27 @@ func TestDefaultVersioning(t *testing.T) {
 	assert.Equal(t, "test-rhpamcentrmon", env.Console.DeploymentConfigs[0].ObjectMeta.Name)
 	assert.Equal(t, constants.CurrentVersion, cr.Spec.Version)
 	assert.Equal(t, constants.VersionConstants[constants.CurrentVersion].ImageTag, cr.Spec.CommonConfig.ImageTag)
-	assert.True(t, checkVersion(cr.Spec.Version))
+	assert.True(t, CheckVersion(cr.Spec.Version))
 	assert.Equal(t, fmt.Sprintf("rhpam%s-businesscentral-monitoring-openshift", getMinorImageVersion(constants.CurrentVersion)), env.Console.DeploymentConfigs[0].Spec.Template.Spec.Containers[0].Image)
 }
 
 func TestOldConfigVersioning(t *testing.T) {
-	cr := &api.KieApp{
+	crv1 := &v1.KieApp{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test",
 		},
-		Spec: api.KieAppSpec{
-			Environment: api.RhpamProduction,
-			Version:     "74",
+		Spec: v1.KieAppSpec{
+			Environment: v1.RhpamProduction,
+			CommonConfig: v1.CommonConfig{
+				Version: "74",
+			},
 		},
 	}
+	cr, err := api.ConvertKieAppV1toV2(crv1)
+	cr.Spec.Environment = api.RhpamProduction
+	assert.NoError(t, err)
 	env, err := GetEnvironment(cr, test.MockService())
+	assert.Equal(t, api.SchemeGroupVersion.String(), cr.APIVersion)
 	assert.Nil(t, err, "Error getting prod environment")
 	assert.Equal(t, "test-rhpamcentrmon", env.Console.DeploymentConfigs[0].ObjectMeta.Name)
 	assert.Equal(t, "7.4.1", cr.Spec.Version)
@@ -1886,7 +1893,7 @@ func TestConfigVersioning(t *testing.T) {
 	assert.Equal(t, "6", major)
 	assert.Equal(t, "3", minor)
 	assert.Equal(t, "1", micro)
-	assert.False(t, checkVersion(cr.Spec.Version))
+	assert.False(t, CheckVersion(cr.Spec.Version))
 }
 
 func TestConfigMapNames(t *testing.T) {

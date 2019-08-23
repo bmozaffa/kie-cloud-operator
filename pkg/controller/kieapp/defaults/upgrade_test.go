@@ -39,7 +39,7 @@ func TestGetConfigVersionDiffs(t *testing.T) {
 		},
 	}
 	err := getConfigVersionDiffs(cr.Spec.Version, constants.CurrentVersion, test.MockService())
-	assert.Error(t, err)
+	assert.NoError(t, err)
 }
 
 func TestCheckProductUpgrade(t *testing.T) {

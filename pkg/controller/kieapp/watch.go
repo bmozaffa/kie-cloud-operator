@@ -1,6 +1,7 @@
 package kieapp
 
 import (
+	v1 "github.com/kiegroup/kie-cloud-operator/pkg/apis/app/v1"
 	api "github.com/kiegroup/kie-cloud-operator/pkg/apis/app/v2"
 	oappsv1 "github.com/openshift/api/apps/v1"
 	buildv1 "github.com/openshift/api/build/v1"
@@ -28,6 +29,7 @@ func Add(mgr manager.Manager, reconciler reconcile.Reconciler) error {
 	watchObjects := []runtime.Object{
 		// Watch for changes to primary resource KieApp
 		&api.KieApp{},
+		&v1.KieApp{},
 		&appsv1.Deployment{},
 	}
 	objectHandler := &handler.EnqueueRequestForObject{}

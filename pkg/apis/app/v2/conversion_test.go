@@ -32,7 +32,7 @@ func TestRoundTripFromV1ToV2(t *testing.T) {
 }
 
 func testRoundTripFromV1(t *testing.T, v1Object v1.KieApp) {
-	v2Object, err := convertKieAppV1toV2(&v1Object)
+	v2Object, err := ConvertKieAppV1toV2(&v1Object)
 	if err != nil {
 		t.Fatalf("failed to convert v1 crontab to v2: %v", err)
 	}

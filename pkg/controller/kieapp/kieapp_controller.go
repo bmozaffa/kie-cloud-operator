@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/RHsyseng/operator-utils/pkg/olm"
+	v1 "github.com/kiegroup/kie-cloud-operator/pkg/apis/app/v1"
 	api "github.com/kiegroup/kie-cloud-operator/pkg/apis/app/v2"
 	"github.com/kiegroup/kie-cloud-operator/pkg/controller/kieapp/constants"
 	"github.com/kiegroup/kie-cloud-operator/pkg/controller/kieapp/defaults"
@@ -72,6 +73,20 @@ func (reconciler *Reconciler) Reconcile(request reconcile.Request) (reconcile.Re
 		// Error reading the object - requeue the request.
 		reconciler.setFailedStatus(instance, api.UnknownReason, err)
 		return reconcile.Result{}, err
+	}
+	// Fetch the v1 KieApp instance
+	v1instance := &v1.KieApp{}
+	err = reconciler.Service.Get(context.TODO(), request.NamespacedName, v1instance)
+	if (err == nil) && (defaults.CheckVersion(v1instance.Spec.CommonConfig.Version)) {
+		// upgrade CR api version
+		if (v1instance.GroupVersionKind().Version != constants.VersionConstants[v1instance.Spec.CommonConfig.Version].APIVersion) &&
+			(v1instance.GroupVersionKind().Version == v1.SchemeGroupVersion.Version) {
+			instance, err = api.ConvertKieAppV1toV2(v1instance)
+			if err != nil {
+				return reconcile.Result{}, err
+			}
+			return reconcile.Result{Requeue: true}, nil
+		}
 	}
 
 	env, rResult, err := reconciler.newEnv(instance)

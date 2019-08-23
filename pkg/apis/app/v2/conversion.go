@@ -14,13 +14,18 @@ import (
 
 // Actual conversion methods
 
-func convertKieAppV1toV2(kieAppV1 *v1.KieApp) (*KieApp, error) {
+// ConvertKieAppV1toV2 ...
+func ConvertKieAppV1toV2(kieAppV1 *v1.KieApp) (*KieApp, error) {
 	/*
 		items := strings.Split(kieAppV1.Spec, " ")
 		if len(items) != 5 {
 		   return nil, fmt.Errorf("invalid spec string, needs five parts: %s", kieAppV1.Spec)
 		}
 	*/
+	upgrades := KieAppUpgrades{Minor: kieAppV1.Spec.Upgrades.Minor}
+	if kieAppV1.Spec.Upgrades.Patch != nil {
+		upgrades.Enabled = *kieAppV1.Spec.Upgrades.Patch
+	}
 	return &KieApp{
 		ObjectMeta: kieAppV1.ObjectMeta,
 		TypeMeta: metav1.TypeMeta{
@@ -28,11 +33,8 @@ func convertKieAppV1toV2(kieAppV1 *v1.KieApp) (*KieApp, error) {
 			Kind:       kieAppV1.Kind,
 		},
 		Spec: KieAppSpec{
-			Version: kieAppV1.Spec.CommonConfig.Version,
-			Upgrades: KieAppUpgrades{
-				Enabled: *kieAppV1.Spec.Upgrades.Patch,
-				Minor:   kieAppV1.Spec.Upgrades.Minor,
-			},
+			Version:  kieAppV1.Spec.CommonConfig.Version,
+			Upgrades: upgrades,
 		},
 	}, nil
 }
@@ -72,7 +74,7 @@ func convert(in runtime.RawExtension, version string) (*runtime.RawExtension, er
 			// This should not happened as API server will not call the webhook in this case
 			return &in, nil
 		case SchemeGroupVersion.String():
-			kieAppV2, err := convertKieAppV1toV2(&kieAppV1)
+			kieAppV2, err := ConvertKieAppV1toV2(&kieAppV1)
 			if err != nil {
 				return nil, err
 			}
