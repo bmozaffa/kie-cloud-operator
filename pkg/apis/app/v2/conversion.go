@@ -3,7 +3,6 @@ package v2
 import (
 	"encoding/json"
 	"fmt"
-
 	v1 "github.com/kiegroup/kie-cloud-operator/pkg/apis/app/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -16,27 +15,23 @@ import (
 
 // ConvertKieAppV1toV2 ...
 func ConvertKieAppV1toV2(kieAppV1 *v1.KieApp) (*KieApp, error) {
-	/*
-		items := strings.Split(kieAppV1.Spec, " ")
-		if len(items) != 5 {
-		   return nil, fmt.Errorf("invalid spec string, needs five parts: %s", kieAppV1.Spec)
-		}
-	*/
-	upgrades := KieAppUpgrades{Minor: kieAppV1.Spec.Upgrades.Minor}
-	if kieAppV1.Spec.Upgrades.Patch != nil {
-		upgrades.Enabled = *kieAppV1.Spec.Upgrades.Patch
+	upgrades := KieAppUpgrades{Enabled: false, Minor: kieAppV1.Spec.Upgrades.Minor}
+	if kieAppV1.Spec.Upgrades.Patch != nil && *kieAppV1.Spec.Upgrades.Patch == true {
+		upgrades.Enabled = true
 	}
-	return &KieApp{
-		ObjectMeta: kieAppV1.ObjectMeta,
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: SchemeGroupVersion.String(),
-			Kind:       kieAppV1.Kind,
-		},
-		Spec: KieAppSpec{
-			Version:  kieAppV1.Spec.CommonConfig.Version,
-			Upgrades: upgrades,
-		},
-	}, nil
+	kieAppV1.Spec.Upgrades.Patch = nil
+	bytesV1, err := json.Marshal(kieAppV1)
+	if err != nil {
+		return nil, err
+	}
+	kieAppV2 := &KieApp{}
+	err = json.Unmarshal(bytesV1, kieAppV2)
+	if err != nil {
+		return nil, err
+	}
+	kieAppV2.APIVersion = SchemeGroupVersion.String()
+	kieAppV2.Spec.Upgrades = upgrades
+	return kieAppV2, nil
 }
 
 func convertKieAppV2toV1(kieAppV2 *KieApp) (*v1.KieApp, error) {
