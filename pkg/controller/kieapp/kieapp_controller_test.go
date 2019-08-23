@@ -271,7 +271,7 @@ func TestAPIConversion(t *testing.T) {
 	reconciler := Reconciler{Service: service}
 	result, err := reconciler.Reconcile(reconcile.Request{NamespacedName: crNamespacedName})
 	assert.Nil(t, err)
-	assert.Equal(t, reconcile.Result{Requeue: true}, result, "Deployment should be created but requeued for status updates")
+	assert.Equal(t, reconcile.Result{}, result, "Deployment should be created but requeued for status updates")
 
 	cr := reloadCR(t, service, crNamespacedName)
 	assert.Equal(t, api.SchemeGroupVersion.String(), cr.APIVersion)

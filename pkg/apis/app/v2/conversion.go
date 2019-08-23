@@ -3,6 +3,7 @@ package v2
 import (
 	"encoding/json"
 	"fmt"
+
 	v1 "github.com/kiegroup/kie-cloud-operator/pkg/apis/app/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -15,12 +16,16 @@ import (
 
 // ConvertKieAppV1toV2 ...
 func ConvertKieAppV1toV2(kieAppV1 *v1.KieApp) (*KieApp, error) {
-	upgrades := KieAppUpgrades{Enabled: false, Minor: kieAppV1.Spec.Upgrades.Minor}
-	if kieAppV1.Spec.Upgrades.Patch != nil && *kieAppV1.Spec.Upgrades.Patch == true {
+	v1obj := &v1.KieApp{}
+	kieAppV1.DeepCopyInto(v1obj)
+	version := v1obj.Spec.CommonConfig.Version
+	upgrades := KieAppUpgrades{Enabled: false, Minor: v1obj.Spec.Upgrades.Minor}
+	if v1obj.Spec.Upgrades.Patch != nil && *v1obj.Spec.Upgrades.Patch == true {
 		upgrades.Enabled = true
 	}
-	kieAppV1.Spec.Upgrades.Patch = nil
-	bytesV1, err := json.Marshal(kieAppV1)
+	v1obj.Spec.Upgrades.Patch = nil
+	v1obj.Spec.CommonConfig.Version = ""
+	bytesV1, err := json.Marshal(v1obj)
 	if err != nil {
 		return nil, err
 	}
@@ -29,7 +34,8 @@ func ConvertKieAppV1toV2(kieAppV1 *v1.KieApp) (*KieApp, error) {
 	if err != nil {
 		return nil, err
 	}
-	kieAppV2.APIVersion = SchemeGroupVersion.String()
+	kieAppV2.SetGroupVersionKind(SchemeGroupVersion.WithKind("KieApp"))
+	kieAppV2.Spec.Version = version
 	kieAppV2.Spec.Upgrades = upgrades
 	return kieAppV2, nil
 }
