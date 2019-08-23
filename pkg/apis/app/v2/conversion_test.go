@@ -1,6 +1,8 @@
 package v2
 
 import (
+	"github.com/ghodss/yaml"
+	"github.com/gobuffalo/packr/v2"
 	"reflect"
 	"testing"
 
@@ -8,6 +10,28 @@ import (
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+func TestUpgradeExamples(t *testing.T) {
+	boxV1 := packr.New("deploy/examples/v1", "../../../../deploy/examples/v1")
+	boxV2 := packr.New("deploy/examples/v2", "../../../../deploy/examples/v2")
+	for _, file := range boxV1.List() {
+		if file == "image_registry.yaml" {
+			continue
+		}
+		yamlV1, err := boxV1.FindString(file)
+		assert.NoError(t, err, "Error reading %v CR yaml", file)
+		kieAppV1 := &v1.KieApp{}
+		assert.NoError(t, yaml.Unmarshal([]byte(yamlV1), kieAppV1))
+		converted, err := ConvertKieAppV1toV2(kieAppV1);
+		assert.NoError( t, err, "Error converting from v1 to v2")
+
+		yamlV2, err := boxV2.FindString(file)
+		assert.NoError(t, err, "Error reading %v CR yaml for v2", file)
+		expected := &KieApp{}
+		assert.NoError(t, yaml.Unmarshal([]byte(yamlV2), expected))
+		assert.Equal(t, expected, converted, "Expected v2.KieApp to look differently after conversion")
+	}
+}
 
 func TestRoundTripFromV1ToV2(t *testing.T) {
 	patch := true
