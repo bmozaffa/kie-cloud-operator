@@ -7,6 +7,8 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"math/big"
 	"math/rand"
 	"time"
@@ -165,4 +167,13 @@ func EnvVarCheck(dst, src []corev1.EnvVar) bool {
 		}
 	}
 	return true
+}
+
+func IsOwnedBy(object metav1.Object, uid types.UID) bool {
+	for _, ownerRef := range object.GetOwnerReferences() {
+		if ownerRef.UID == uid {
+			return true
+		}
+	}
+	return false
 }

@@ -3,6 +3,13 @@ package defaults
 import (
 	"context"
 	"fmt"
+	v1 "github.com/kiegroup/kie-cloud-operator/pkg/apis/app/v1"
+	"github.com/kiegroup/kie-cloud-operator/pkg/controller/kieapp/shared"
+	oappsv1 "github.com/openshift/api/apps/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"strings"
 
 	"github.com/gobuffalo/packr/v2"
@@ -14,7 +21,88 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-// checkProductUpgrade ...
+// UpgradingSchema ...
+func UpgradingSchema(namespacedName types.NamespacedName, service api.PlatformService) (bool, reconcile.Result, error) {
+	// Fetch v1 KieApp instance
+	v1instance := &v1.KieApp{}
+	log.Debugf("Checking upgrade with %v", namespacedName)
+	err := service.Get(context.TODO(), namespacedName, v1instance)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			log.Debug("No V1 objects found, so no schema upgrade needed")
+			return false, reconcile.Result{}, nil
+		} else {
+			return true, reconcile.Result{}, err
+		}
+	}
+
+	//Unsupported product versions should be left alone and not upgraded:
+	if v1instance.Spec.CommonConfig.Version != "" && !CheckVersion(v1instance.Spec.CommonConfig.Version) {
+		//Old unsupported version, leave it alone
+		log.Debugf("Unsupported version %s found, will not upgrade", v1instance.Spec.CommonConfig.Version)
+		return false, reconcile.Result{}, nil
+	}
+
+	//Create an updated CR version if one does not exist
+	updatedCR := &api.KieApp{}
+	err = service.Get(context.TODO(), namespacedName, updatedCR)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			log.Debug("No v2 equivalent found, will upgrade CR")
+			instance, err := api.ConvertKieAppV1toV2(v1instance)
+			if err != nil {
+				return true, reconcile.Result{}, err
+			}
+			log.Debugf("Will create upgraded CR as follows: %v", instance)
+			err = service.Create(context.TODO(), instance)
+			updatedCR = instance //TODO will this have the generated metadata?
+			log.Debugf("Updated CR now looks like this: %v", updatedCR)
+			if err != nil {
+				return true, reconcile.Result{}, err
+			}
+		} else {
+			return true, reconcile.Result{}, err
+		}
+	}
+
+	listOps := &client.ListOptions{Namespace: namespacedName.Namespace}
+	dcList := &oappsv1.DeploymentConfigList{}
+	err = service.List(context.TODO(), listOps, dcList)
+	if err != nil {
+		return true, reconcile.Result{}, err
+	}
+	for _, dc := range dcList.Items {
+		log.Debugf("Item is %v", dc)
+		if shared.IsOwnedBy(&dc, v1instance.UID) {
+			if !shared.IsOwnedBy(&dc, updatedCR.UID) {
+				err = controllerutil.SetControllerReference(updatedCR, &dc, service.GetScheme())
+				if err != nil {
+					return true, reconcile.Result{}, err
+				}
+			}
+		}
+	}
+	//list := &metav1.List{}
+	//err = service.List(context.TODO(), listOps, list)
+	//if err != nil {
+	//	return true, reconcile.Result{}, err
+	//}
+	//for _, item := range list.Items {
+	//	log.Debugf("Item is %v", item)
+	//	metaObject := item.Object.(metav1.Object)
+	//	if shared.IsOwnedBy(metaObject, v1instance.UID) {
+	//		if !shared.IsOwnedBy(metaObject, updatedCR.UID) {
+	//			err = controllerutil.SetControllerReference(updatedCR, metaObject, nil)
+	//			if err != nil {
+	//				return true, reconcile.Result{}, err
+	//			}
+	//		}
+	//	}
+	//}
+	return false, reconcile.Result{}, nil
+}
+
+// CheckProductUpgrade ...
 func checkProductUpgrade(cr *api.KieApp) (minor, micro bool, err error) {
 	setDefaults(cr)
 	if CheckVersion(cr.Spec.Version) {

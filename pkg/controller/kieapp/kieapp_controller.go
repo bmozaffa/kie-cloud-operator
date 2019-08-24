@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/RHsyseng/operator-utils/pkg/olm"
-	v1 "github.com/kiegroup/kie-cloud-operator/pkg/apis/app/v1"
 	api "github.com/kiegroup/kie-cloud-operator/pkg/apis/app/v2"
 	"github.com/kiegroup/kie-cloud-operator/pkg/controller/kieapp/constants"
 	"github.com/kiegroup/kie-cloud-operator/pkg/controller/kieapp/defaults"
@@ -60,6 +59,10 @@ func (reconciler *Reconciler) Reconcile(request reconcile.Request) (reconcile.Re
 		}
 	}
 
+	if upgrading, result, err := defaults.UpgradingSchema(request.NamespacedName, reconciler.Service); upgrading {
+		return result, err
+	}
+
 	// Fetch the KieApp instance
 	instance := &api.KieApp{}
 	err := reconciler.Service.Get(context.TODO(), request.NamespacedName, instance)
@@ -73,20 +76,6 @@ func (reconciler *Reconciler) Reconcile(request reconcile.Request) (reconcile.Re
 		// Error reading the object - requeue the request.
 		reconciler.setFailedStatus(instance, api.UnknownReason, err)
 		return reconcile.Result{}, err
-	}
-	// Fetch the v1 KieApp instance
-	v1instance := &v1.KieApp{}
-	err = reconciler.Service.Get(context.TODO(), request.NamespacedName, v1instance)
-	if (err == nil) && (defaults.CheckVersion(v1instance.Spec.CommonConfig.Version)) {
-		// upgrade CR api version
-		if (v1instance.GroupVersionKind().Version != constants.VersionConstants[v1instance.Spec.CommonConfig.Version].APIVersion) &&
-			(v1instance.GroupVersionKind().Version == v1.SchemeGroupVersion.Version) {
-			instance, err = api.ConvertKieAppV1toV2(v1instance)
-			if err != nil {
-				return reconcile.Result{}, err
-			}
-			return reconcile.Result{Requeue: true}, nil
-		}
 	}
 
 	env, rResult, err := reconciler.newEnv(instance)
@@ -163,11 +152,8 @@ func (reconciler *Reconciler) updateDeploymentConfigs(instance *api.KieApp, env 
 	}
 	var dcs []oappsv1.DeploymentConfig
 	for _, dc := range dcList.Items {
-		for _, ownerRef := range dc.GetOwnerReferences() {
-			if ownerRef.UID == instance.UID {
-				dcs = append(dcs, dc)
-				break
-			}
+		if shared.IsOwnedBy(&dc, instance.UID) {
+			dcs = append(dcs, dc)
 		}
 	}
 	instance.Status.Deployments = olm.GetDeploymentConfigStatus(dcs)

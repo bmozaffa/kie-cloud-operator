@@ -49,7 +49,7 @@ func deployConsole(reconciler *Reconciler, operator *appsv1.Deployment) {
 	err = reconciler.Service.Create(context.TODO(), role)
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
-			log.Debug("Could not create role as it already exists", role)
+			//log.Debug("Could not create role as it already exists", role)
 		} else {
 			log.Error("Failed to create role. ", err)
 			return
@@ -64,7 +64,7 @@ func deployConsole(reconciler *Reconciler, operator *appsv1.Deployment) {
 	err = reconciler.Service.Create(context.TODO(), roleBinding)
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
-			log.Debug("Could not create roleBinding as it already exists", roleBinding)
+			//log.Debug("Could not create roleBinding as it already exists", roleBinding)
 		} else {
 			log.Error("Failed to create roleBinding. ", err)
 			return
@@ -79,7 +79,7 @@ func deployConsole(reconciler *Reconciler, operator *appsv1.Deployment) {
 	err = reconciler.Service.Create(context.TODO(), sa)
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
-			log.Debug("Could not create serviceaccount as it already exists", sa)
+			//log.Debug("Could not create serviceaccount as it already exists", sa)
 		} else {
 			log.Error("Failed to create serviceaccount. ", err)
 			return
@@ -95,7 +95,7 @@ func deployConsole(reconciler *Reconciler, operator *appsv1.Deployment) {
 	err = reconciler.Service.Create(context.TODO(), pod)
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
-			log.Debug("Could not create pod as it already exists", pod)
+			//log.Debug("Could not create pod as it already exists", pod)
 		} else {
 			log.Error("Failed to create pod. ", err)
 			return
@@ -110,7 +110,7 @@ func deployConsole(reconciler *Reconciler, operator *appsv1.Deployment) {
 	err = reconciler.Service.Create(context.TODO(), service)
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
-			log.Debug("Could not create service as it already exists", service)
+			//log.Debug("Could not create service as it already exists", service)
 		} else {
 			log.Error("Failed to create service. ", err)
 			return
@@ -125,7 +125,7 @@ func deployConsole(reconciler *Reconciler, operator *appsv1.Deployment) {
 	err = reconciler.Service.Create(context.TODO(), route)
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
-			log.Debug("Could not create route as it already exists", route)
+			//log.Debug("Could not create route as it already exists", route)
 		} else {
 			log.Error("Failed to create route. ", err)
 			return
