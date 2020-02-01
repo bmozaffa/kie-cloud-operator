@@ -3,6 +3,9 @@ package test
 import (
 	"context"
 	api "github.com/kiegroup/kie-cloud-operator/pkg/apis/app/v2"
+	k8schema "k8s.io/apimachinery/pkg/runtime/schema"
+	k8scheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/kiegroup/kie-cloud-operator/pkg/controller/kieapp/logs"
@@ -133,4 +136,17 @@ func (service *MockPlatformService) GetScheme() *runtime.Scheme {
 
 func (service *MockPlatformService) IsMockService() bool {
 	return true
+}
+
+func (service *MockPlatformService) GetRestConfig() *rest.Config {
+	return &rest.Config{
+		Host: "https://example.com:443",
+		ContentConfig: rest.ContentConfig{
+			GroupVersion: &k8schema.GroupVersion{
+				Group:   "",
+				Version: "v1",
+			},
+			NegotiatedSerializer: k8scheme.Codecs,
+		},
+	}
 }

@@ -3,6 +3,8 @@ package kieapp
 import (
 	"context"
 	"fmt"
+	monv1 "github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1"
+	"github.com/operator-framework/operator-sdk/pkg/metrics"
 	"reflect"
 	"regexp"
 	"strings"
@@ -164,6 +166,13 @@ func (reconciler *Reconciler) Reconcile(request reconcile.Request) (reconcile.Re
 
 	// Check the KieServer ConfigMaps for necessary changes
 	reconciler.checkKieServerConfigMap(instance, env)
+
+	// Create service monitors if not already there
+	if hasUpdates, err := reconciler.reconcileServiceMonitors(instance); err != nil {
+		return reconcile.Result{}, err
+	} else if hasUpdates {
+		log.Debug("Service Monitors reconciled")
+	}
 
 	// Fetch the cached KieApp instance
 	cachedInstance := &api.KieApp{}
@@ -892,4 +901,56 @@ func (reconciler *Reconciler) getCSV(operator *appsv1.Deployment) *operatorsv1al
 		}
 	}
 	return csv
+}
+
+func (reconciler *Reconciler) reconcileServiceMonitors(instance *api.KieApp) (bool, error) {
+	reader := read.New(reconciler.Service).WithNamespace(instance.Namespace).WithOwnerObject(instance)
+	serviceResources, err := reader.List(&corev1.ServiceList{})
+	if err != nil {
+		return false, err
+	}
+	var services []*corev1.Service
+	for index := range serviceResources {
+		services = append(services, serviceResources[index].(*corev1.Service))
+	}
+	requestedMonitorObjs, err := metrics.CreateServiceMonitors(reconciler.Service.GetRestConfig(), instance.Namespace, services)
+	if err != nil {
+		return false, err
+	}
+	var requestedMonitors []resource.KubernetesResource
+	for index := range requestedMonitorObjs {
+		requestedMonitors = append(requestedMonitors, requestedMonitorObjs[index])
+	}
+
+	monitorResources, err := reader.List(&monv1.ServiceMonitorList{})
+	if err != nil {
+		return false, err
+	}
+	mapBuilder := compare.NewMapBuilder()
+	requested := mapBuilder.Add(requestedMonitors...).ResourceMap()
+	deployed := mapBuilder.Add(monitorResources...).ResourceMap()
+	comparator := getComparator()
+	deltas := comparator.Compare(deployed, requested)
+	writer := write.New(reconciler.Service).WithOwnerController(instance, reconciler.Service.GetScheme())
+	var hasUpdates bool
+	for resourceType, delta := range deltas {
+		if !delta.HasChanges() {
+			continue
+		}
+		log.Debugf("Will create %d, update %d, and delete %d instances of %v", len(delta.Added), len(delta.Updated), len(delta.Removed), resourceType)
+		added, err := writer.AddResources(delta.Added)
+		if err != nil {
+			return true, err
+		}
+		updated, err := writer.UpdateResources(deployed[resourceType], delta.Updated)
+		if err != nil {
+			return true, err
+		}
+		removed, err := writer.RemoveResources(delta.Removed)
+		if err != nil {
+			return true, err
+		}
+		hasUpdates = hasUpdates || added || updated || removed
+	}
+	return hasUpdates, nil
 }

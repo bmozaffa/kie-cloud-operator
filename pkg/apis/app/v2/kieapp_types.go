@@ -2,6 +2,7 @@ package v2
 
 import (
 	"context"
+	"k8s.io/client-go/rest"
 
 	"github.com/RHsyseng/operator-utils/pkg/olm"
 	oappsv1 "github.com/openshift/api/apps/v1"
@@ -545,6 +546,7 @@ type PlatformService interface {
 	ImageStreamTags(namespace string) imagev1.ImageStreamTagInterface
 	GetScheme() *runtime.Scheme
 	IsMockService() bool
+	GetRestConfig() *rest.Config
 }
 
 func init() {

@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"k8s.io/client-go/rest"
 
 	imagev1 "github.com/openshift/client-go/image/clientset/versioned/typed/image/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -15,6 +16,7 @@ type KubernetesPlatformService struct {
 	cache       cachev1.Cache
 	imageClient *imagev1.ImageV1Client
 	scheme      *runtime.Scheme
+	config      *rest.Config
 }
 
 func GetInstance(mgr manager.Manager) KubernetesPlatformService {
@@ -29,6 +31,7 @@ func GetInstance(mgr manager.Manager) KubernetesPlatformService {
 		cache:       mgr.GetCache(),
 		imageClient: imageClient,
 		scheme:      mgr.GetScheme(),
+		config:      mgr.GetConfig(),
 	}
 }
 
@@ -74,4 +77,8 @@ func (service *KubernetesPlatformService) GetScheme() *runtime.Scheme {
 
 func (service *KubernetesPlatformService) IsMockService() bool {
 	return false
+}
+
+func (service *KubernetesPlatformService) GetRestConfig() *rest.Config {
+	return service.config
 }
